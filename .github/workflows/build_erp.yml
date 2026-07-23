@@ -1,0 +1,113 @@
+name: Build Arte in Ferro ERP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build_android:
+    name: Crea APK Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Scarica repository
+        uses: actions/checkout@v6
+
+      - name: Installa Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Genera struttura Android
+        shell: bash
+        run: |
+          SCAFFOLD="$RUNNER_TEMP/app_mobile_scaffold"
+          rm -rf "$SCAFFOLD"
+
+          flutter create \
+            --platforms=android \
+            --org it.arteinferrolascari \
+            --project-name arte_in_ferro_mobile \
+            "$SCAFFOLD"
+
+          rm -rf app_mobile/android
+          cp -R "$SCAFFOLD/android" app_mobile/android
+          cp "$SCAFFOLD/.metadata" app_mobile/.metadata
+
+      - name: Installa dipendenze mobile
+        working-directory: app_mobile
+        run: flutter pub get
+
+      - name: Costruisci APK
+        working-directory: app_mobile
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: flutter build apk --debug --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
+
+      - name: Salva APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: arte-in-ferro-mobile-apk
+          path: app_mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+  build_windows:
+    name: Crea gestionale Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Scarica repository
+        uses: actions/checkout@v6
+
+      - name: Installa Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Genera struttura Windows
+        shell: powershell
+        run: |
+          $scaffold = Join-Path $env:RUNNER_TEMP "gestionale_windows_scaffold"
+
+          if (Test-Path $scaffold) {
+            Remove-Item $scaffold -Recurse -Force
+          }
+
+          flutter create --platforms=windows --org it.arteinferrolascari --project-name arte_in_ferro_gestionale $scaffold
+
+          if (Test-Path "gestionale_windows\windows") {
+            Remove-Item "gestionale_windows\windows" -Recurse -Force
+          }
+
+          Copy-Item "$scaffold\windows" "gestionale_windows\windows" -Recurse -Force
+          Copy-Item "$scaffold\.metadata" "gestionale_windows\.metadata" -Force
+
+      - name: Installa dipendenze Windows
+        working-directory: gestionale_windows
+        run: flutter pub get
+
+      - name: Costruisci gestionale Windows
+        working-directory: gestionale_windows
+        shell: powershell
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: flutter build windows --release --dart-define=SUPABASE_URL="$env:SUPABASE_URL" --dart-define=SUPABASE_PUBLISHABLE_KEY="$env:SUPABASE_PUBLISHABLE_KEY"
+
+      - name: Crea archivio Windows
+        shell: powershell
+        run: Compress-Archive -Path "gestionale_windows\build\windows\x64\runner\Release\*" -DestinationPath "arte-in-ferro-gestionale-windows.zip" -Force
+
+      - name: Salva gestionale Windows
+        uses: actions/upload-artifact@v7
+        with:
+          name: arte-in-ferro-gestionale-windows
+          path: arte-in-ferro-gestionale-windows.zip
+          if-no-files-found: error
